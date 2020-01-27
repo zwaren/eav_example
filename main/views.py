@@ -1,4 +1,7 @@
+from django.db.models import FloatField, IntegerField
+from django.db.models.functions import Cast
 from rest_framework.generics import ListCreateAPIView
+from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from .models import AttributeType, AttributeValue, Category, Product
@@ -22,11 +25,15 @@ class ProductViewSet(ModelViewSet):
 
         extra = AttributeValue.objects.filter(product=instance)
         for att in AttributeType.objects.filter(category=instance.category):
-            value = extra.get(a_type=att).value
+            value = None
             if att.type_name == "Int":
-                value = int(value)
+                value = extra.annotate(value_as_int=Cast('value', IntegerField())) \
+                    .get(a_type=att).value_as_int
             elif att.type_name == "Float":
-                value = float(value)
+                value = extra.annotate(value_as_float=Cast('value', FloatField())) \
+                    .get(a_type=att).value_as_float
+            else:
+                value = extra.get(a_type=att).value
             data[att.name] = value
             
         return Response(data)
@@ -36,21 +43,35 @@ class ProductViewSet(ModelViewSet):
         query_params = self.request.query_params
         attributes = AttributeType.objects.all()
 
-        category = query_params.pop('category', None)
-        if category:
-            queryset = queryset.filter(category_name=category)
+        for k_op, v in query_params.items():
+            k, op = None, None
+            if k_op.find("__") > -1:
+                k, op = k_op.split("__")
+            else:
+                k = k_op
 
-        for k, v in query_params.items():
-            op = None
-            if k.find("__") > -1:
-                k, op = k.split("__")
-            a = attributes.get(name=k, None)
-            if a:
+            if k == 'category':
+                queryset = queryset.filter(
+                    **{"category_name__%s" % op if op else "category_name": v})
+                
+            elif k == 'price':
+                queryset = queryset.filter(
+                    **{"price__%s" % op if op else "price": v})
+            else:
+                a = attributes.get(name=k)
+                a_values = a.a_values.filter(product__in=queryset)
                 if a.type_name == "Int":
-                    value = int(value)
-                elif att.type_name == "Float":
-                    value = float(value)
-                queryset = queryset.filter(category_name=category)
+                    v = int(v)
+                    a_values = a_values.annotate(value_as_int=Cast('value', IntegerField())) \
+                        .filter(**{"value_as_int__%s" % op if op else "value_as_int": v})
+                elif a.type_name == "Float":
+                    v = float(v)
+                    a_values = a_values.annotate(value_as_float=Cast('value', FloatField())) \
+                        .filter(**{"value_as_float__%s" % op if op else "value_as_float": v})
+                else:
+                    a_values = a_values.filter(**{"value__%s" % op: v})
+                    
+                queryset = queryset.filter(pk__in=a_values.values_list('product', flat=True))
                 
         return queryset
 
