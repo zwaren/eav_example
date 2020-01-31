@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
-from .models import AttributeType, AttributeValue, Category, Product
+from .models import (AttributeCategory, AttributeType, AttributeValue,
+                     Category, Product)
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -12,6 +13,12 @@ class CategorySerializer(serializers.ModelSerializer):
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
+        fields = '__all__'
+
+
+class AttributeCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AttributeCategory
         fields = '__all__'
 
 

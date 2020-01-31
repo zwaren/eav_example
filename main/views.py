@@ -4,9 +4,11 @@ from rest_framework.generics import ListCreateAPIView
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from .models import AttributeType, AttributeValue, Category, Product
-from .serializers import (AttributeTypeSerializer, AttributeValueSerializer,
-                          CategorySerializer, ProductSerializer)
+from .models import (AttributeCategory, AttributeType, AttributeValue,
+                     Category, Product)
+from .serializers import (
+    AttributeCategorySerializer, AttributeTypeSerializer,
+    AttributeValueSerializer, CategorySerializer, ProductSerializer)
 
 
 class CategoryList(ListCreateAPIView):
@@ -22,19 +24,35 @@ class ProductViewSet(ModelViewSet):
         instance = self.get_object()
         serializer = self.get_serializer(instance)
         data = serializer.data
+        a_values = AttributeValue.objects.filter(product=instance)
 
-        extra = AttributeValue.objects.filter(product=instance)
-        for att in AttributeType.objects.filter(category=instance.category):
-            value = None
-            if att.type_name == "Int":
-                value = extra.annotate(value_as_int=Cast('value', IntegerField())) \
-                    .get(a_type=att).value_as_int
-            elif att.type_name == "Float":
-                value = extra.annotate(value_as_float=Cast('value', FloatField())) \
-                    .get(a_type=att).value_as_float
-            else:
-                value = extra.get(a_type=att).value
-            data[att.name] = value
+        qs_a_categories = instance.category.a_categories.order_by('sorting_key')
+        a_categories = AttributeCategorySerializer(qs_a_categories, many=True).data
+        data['a_categories'] = a_categories
+
+        for a_category in a_categories:
+            qs_attributes = qs_a_categories.get(id=a_category['id']) \
+                .attributes.order_by('sorting_key')
+            attributes = AttributeTypeSerializer(qs_attributes, many=True).data
+            a_category['attributes'] = attributes
+
+            for attribute in attributes:
+                if attribute['data_format'] != "":
+                    attribute['value'] = attribute['data_format'] \
+                        .format(a_values.get(a_type=attribute['id']).value)
+                else:
+                    attribute['value'] = a_values.get(a_type=attribute['id']).value
+                attribute.pop("id", None)
+                attribute.pop("name", None)
+                attribute.pop("sorting_key", None)
+                attribute.pop("type_name", None)
+                attribute.pop("data_format", None)
+                attribute.pop("a_category", None)
+
+            a_category.pop("id", None)
+            a_category.pop("name", None)
+            a_category.pop("sorting_key", None)
+            a_category.pop("category", None)
             
         return Response(data)
 
@@ -53,10 +71,12 @@ class ProductViewSet(ModelViewSet):
             if k == 'category':
                 queryset = queryset.filter(
                     **{"category_name__%s" % op if op else "category_name": v})
-                
             elif k == 'price':
                 queryset = queryset.filter(
                     **{"price__%s" % op if op else "price": v})
+            elif k == 'name':
+                queryset = queryset.filter(
+                    **{"name__%s" % op if op else "name": v})
             else:
                 a = attributes.get(name=k)
                 a_values = a.a_values.filter(product__in=queryset)
@@ -74,6 +94,11 @@ class ProductViewSet(ModelViewSet):
                 queryset = queryset.filter(pk__in=a_values.values_list('product', flat=True))
                 
         return queryset
+
+
+class AttributeCategoryList(ListCreateAPIView):
+    queryset = AttributeCategory.objects.all()
+    serializer_class = AttributeCategorySerializer
 
 
 class AttributeTypeList(ListCreateAPIView):
