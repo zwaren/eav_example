@@ -70,7 +70,7 @@ class ProductViewSet(ModelViewSet):
 
             if k == 'category':
                 queryset = queryset.filter(
-                    **{"category_name__%s" % op if op else "category_name": v})
+                    **{"category__%s" % op if op else "category": v})
             elif k == 'price':
                 queryset = queryset.filter(
                     **{"price__%s" % op if op else "price": v})
