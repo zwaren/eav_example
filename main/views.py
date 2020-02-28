@@ -1,4 +1,4 @@
-from django.db.models import FloatField, IntegerField
+from django.db.models import FloatField, IntegerField, Prefetch
 from django.db.models.functions import Cast
 from rest_framework.generics import ListCreateAPIView
 from rest_framework.response import Response
@@ -22,38 +22,38 @@ class ProductViewSet(ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        serializer = self.get_serializer(instance)
-        data = serializer.data
-        a_values = AttributeValue.objects.filter(product=instance)
+        category = instance.category
+        data = {
+            'id': instance.id, 
+            'name': instance.name, 
+            'price': instance.price,
+            'category': category.id,
+            'a_categories': []
+            }
+        a_values = instance.attributes.values('a_type', 'value').all()
 
-        qs_a_categories = instance.category.a_categories.order_by('sorting_key')
-        a_categories = AttributeCategorySerializer(qs_a_categories, many=True).data
-        data['a_categories'] = a_categories
+        qs_a_categories = category.a_categories.order_by('sorting_key') \
+            .prefetch_related(Prefetch('attributes', queryset=AttributeType.objects.order_by('sorting_key')))
 
-        for a_category in a_categories:
-            qs_attributes = qs_a_categories.get(id=a_category['id']) \
-                .attributes.order_by('sorting_key')
-            attributes = AttributeTypeSerializer(qs_attributes, many=True).data
-            a_category['attributes'] = attributes
+        for a_category_inst in qs_a_categories:
+            qs_attributes = a_category_inst.attributes.all()
+            a_category = {
+                'displaying_name': a_category_inst.displaying_name, 
+                'attributes': []
+            }
+            data['a_categories'].append(a_category)
 
-            for attribute in attributes:
-                if attribute['data_format'] != "":
-                    attribute['value'] = attribute['data_format'] \
-                        .format(a_values.get(a_type=attribute['id']).value)
-                else:
-                    attribute['value'] = a_values.get(a_type=attribute['id']).value
-                attribute.pop("id", None)
-                attribute.pop("name", None)
-                attribute.pop("sorting_key", None)
-                attribute.pop("type_name", None)
-                attribute.pop("data_format", None)
-                attribute.pop("a_category", None)
-
-            a_category.pop("id", None)
-            a_category.pop("name", None)
-            a_category.pop("sorting_key", None)
-            a_category.pop("category", None)
-            
+            for attribute_inst in qs_attributes:
+                a_value = a_values.get(a_type=attribute_inst.id)
+                value = a_value['value']
+                if attribute_inst.data_format != "":
+                    value = attribute_inst.data_format.format(value)
+                attribute = {
+                    'displaying_name': attribute_inst.displaying_name, 
+                    'value': value,
+                }
+                a_category['attributes'].append(attribute)
+                
         return Response(data)
 
     def get_queryset(self):
